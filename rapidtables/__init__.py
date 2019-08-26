@@ -97,13 +97,16 @@ def format_table(table,
     if fmt == OUTPUT_RAW:
         result = ''
 
-    if isinstance(column_width, (int, float)):
+    if column_width in [True, None]:
+        # need to determine widths
+        key_lengths = guess_widths(keys, headers, columns_to_use, generate_header)
+    elif isinstance(column_width, (int, float)):
+        print(column_width)
         key_lengths = (column_width,) * len_keys
     elif isinstance(column_width, (tuple, list)):
         key_lengths = column_width
     else:
-        # need to determine widths
-        key_lengths = guess_widths(keys, headers, columns_to_use, generate_header)
+        raise ValueError("Unrecognized 'column_width'")
 
     # figure out alphas
     for ki, k in enumerate(keys):
