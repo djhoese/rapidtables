@@ -2,6 +2,8 @@ __author__ = "Altertech"
 __license__ = "MIT"
 __version__ = '0.0.34'
 
+from itertools import chain
+
 OUTPUT_RAW = 0
 OUTPUT_GENERATOR = 1
 OUTPUT_GENERATOR_TUPLES = 2
@@ -152,7 +154,7 @@ def format_table(table,
                     header += (ht.rjust(key_len),)
 
     def body_generator():
-        for v in table:
+        for v in chain((first_row,), table):
             if fmt == OUTPUT_GENERATOR_TUPLES:
                 row = ()
             else:
