@@ -11,6 +11,23 @@ _TABLEFMT_MD = 2
 _TABLEFMT_RST = 3
 
 
+def guess_widths(keys, headers, row_data, generate_header):
+    """Determine best width for each column."""
+    key_lengths = ()
+    for ki, k in enumerate(keys):
+        klen = 0
+        for ri, r in enumerate(row_data):
+            value = r.get(k)
+            if value is not None:
+                klen = max(klen, len(str(value)))
+        if generate_header:
+            hklen = len(headers[ki]) if headers else len(k)
+            key_lengths += (max(hklen, klen),)
+        else:
+            key_lengths += (klen,)
+    return key_lengths
+
+
 def format_table(table,
                  fmt=0,
                  headers=None,
@@ -18,9 +35,9 @@ def format_table(table,
                  align=1,
                  generate_header=True,
                  body_sep=None,
-                 body_sep_fill='  '):
-    '''
-    Format list of dicts to table
+                 body_sep_fill='  ',
+                 column_width=None):
+    """Format list of dicts to table.
 
     If headers are not specified, dict keys MUST be strings
 
@@ -34,6 +51,12 @@ def format_table(table,
         generate_header: True (default) - create and return header
         body_sep: char to use as body separator (default: None)
         body_sep_fill: string used to fill body separator to next col
+        column_width: list or tuple of integers or integer or True or None
+            If `None` (default), read the entire table to find the best
+            width for each column. If `True` use the first row of data to
+            guess at good column widths. If a single integer, all columns
+            will be the same width. Otherwise, use the specified widths for
+            each column.
 
     Returns:
         body if generate_header is False and body_sep is None
@@ -43,116 +66,126 @@ def format_table(table,
 
         if fmt is set to 1 or 2, body is returned as generator of strings or
         generator of tuples
-        '''
+
+    """
     calign = align == 0
-    if table:
-        keys = tuple(table[0])
-        len_keys = len(keys)
-        lkr = range(len_keys)
-        len_keysn = len_keys - 1
-        key_lengths = ()
-        if not calign: key_isalpha = ()
-        need_body_sep = body_sep is not None
-        if fmt == OUTPUT_RAW:
-            result = ''
-        # dig
-        for ki, k in enumerate(keys):
-            alpha = False
-            if generate_header:
-                hklen = len(headers[ki]) if headers else len(k)
-            klen = 0
-            for ri, r in enumerate(table):
-                value = r.get(k)
-                if value is not None:
-                    klen = max(klen, len(str(value)))
-                    if not (calign and alpha):
-                        try:
-                            float(value)
-                        except:
-                            alpha = True
-            if generate_header:
-                key_lengths += (max(hklen, klen),)
-            else:
-                key_lengths += (klen,)
-            if not calign: key_isalpha += (alpha,)
-        # output
-        # add header
-        if generate_header:
-            if fmt == OUTPUT_RAW or fmt == OUTPUT_GENERATOR:
-                header = ''
-                if need_body_sep:
-                    bsep = ''
-                for i in lkr:
-                    if headers:
-                        ht = headers[i]
-                    else:
-                        ht = keys[i]
-                    if need_body_sep:
-                        if i < len_keysn:
-                            bsep += body_sep * key_lengths[i] + body_sep_fill
-                        else:
-                            bsep += body_sep * key_lengths[i]
-                    if calign or key_isalpha[i]:
-                        if i < len_keysn:
-                            header += ht.ljust(key_lengths[i]) + separator
-                        else:
-                            header += ht.ljust(key_lengths[i])
-                    else:
-                        if i < len_keysn:
-                            header += ht.rjust(key_lengths[i]) + separator
-                        else:
-                            header += ht.rjust(key_lengths[i])
-            else:
-                header = ()
-                if need_body_sep:
-                    bsep = ()
-                for i in lkr:
-                    if headers:
-                        ht = headers[i]
-                    else:
-                        ht = keys[i]
-                    if need_body_sep:
-                        bsep += ('-' * key_lengths[i],)
-                    if calign or key_isalpha[i]:
-                        header += (ht.ljust(key_lengths[i]),)
-                    else:
-                        header += (ht.rjust(key_lengths[i]),)
+    if not table:
+        return
+    if column_width is None:
+        table = list(table)
+        first_row = table[0]
+        columns_to_use = table
+        table = table[1:]
+    else:
+        # most performant way to deal with the table
+        table = iter(table)
+        # use first row to guess as parts of formatting
+        first_row = next(table)
+        columns_to_use = [first_row]
 
-        def body_generator():
-            for v in table:
-                if fmt == OUTPUT_GENERATOR_TUPLES:
-                    row = ()
+    keys = tuple(first_row)
+    len_keys = len(keys)
+    lkr = range(len_keys)
+    len_keysn = len_keys - 1
+    if not headers:
+        headers = keys
+    if not calign:
+        key_isalpha = ()
+    need_body_sep = body_sep is not None
+    if fmt == OUTPUT_RAW:
+        result = ''
+
+    if isinstance(column_width, (int, float)):
+        key_lengths = (column_width,) * len_keys
+    elif isinstance(column_width, (tuple, list)):
+        key_lengths = column_width
+    else:
+        # need to determine widths
+        key_lengths = guess_widths(keys, headers, columns_to_use, generate_header)
+
+    # figure out alphas
+    for ki, k in enumerate(keys):
+        alpha = False
+        value = first_row.get(k)
+        if value is not None:
+            if not (calign and alpha):
+                try:
+                    float(value)
+                except (TypeError, ValueError):
+                    alpha = True
+        if not calign:
+            key_isalpha += (alpha,)
+
+    # output
+    # add header
+    if generate_header:
+        if fmt == OUTPUT_RAW or fmt == OUTPUT_GENERATOR:
+            header = ''
+            if need_body_sep:
+                bsep = ''
+            for i, ht, key_len in zip(lkr, headers, key_lengths):
+                if need_body_sep:
+                    if i < len_keysn:
+                        bsep += body_sep * key_len + body_sep_fill
+                    else:
+                        bsep += body_sep * key_len
+                if calign or key_isalpha[i]:
+                    if i < len_keysn:
+                        header += ht.ljust(key_len) + separator
+                    else:
+                        header += ht.ljust(key_len)
                 else:
-                    row = ''
-                for i, k in enumerate(keys):
-                    val = v.get(k)
-                    if val is not None:
-                        if calign or key_isalpha[i]:
-                            r = str(val).ljust(key_lengths[i])
-                        else:
-                            r = str(val).rjust(key_lengths[i])
+                    if i < len_keysn:
+                        header += ht.rjust(key_len) + separator
                     else:
-                        r = ' ' * key_lengths[i]
-                    if fmt == OUTPUT_GENERATOR_TUPLES:
-                        row += (r,)
-                    # OUTPUT_GENERATOR
-                    elif i < len_keysn:
-                        row += r + separator
-                    else:
-                        row += r
-                yield row
+                        header += ht.rjust(key_len)
+        else:
+            header = ()
+            if need_body_sep:
+                bsep = ()
+            for i, ht, key_len, key_alpha in zip(lkr, headers, key_lengths, key_isalpha):
+                if need_body_sep:
+                    bsep += ('-' * key_len,)
+                if calign or key_alpha:
+                    header += (ht.ljust(key_len),)
+                else:
+                    header += (ht.rjust(key_len),)
 
-        # add body
-        if fmt == OUTPUT_RAW:
-            result += '\n'.join(body_generator())
-        else:
-            result = body_generator()
-        if generate_header and body_sep:
-            return (header, bsep, result)
-        elif generate_header:
-            return (header, result)
-        else:
-            return result
+    def body_generator():
+        for v in table:
+            if fmt == OUTPUT_GENERATOR_TUPLES:
+                row = ()
+            else:
+                row = ''
+            for i, k in enumerate(keys):
+                val = v.get(k)
+                if val is not None:
+                    if calign or key_isalpha[i]:
+                        r = str(val).ljust(key_lengths[i])
+                    else:
+                        r = str(val).rjust(key_lengths[i])
+                else:
+                    r = ' ' * key_lengths[i]
+                if fmt == OUTPUT_GENERATOR_TUPLES:
+                    row += (r,)
+                # OUTPUT_GENERATOR
+                elif i < len_keysn:
+                    row += r + separator
+                else:
+                    row += r
+            yield row
+
+    # add body
+    if fmt == OUTPUT_RAW:
+        result += '\n'.join(body_generator())
+    else:
+        result = body_generator()
+    if generate_header and body_sep:
+        return (header, bsep, result)
+    elif generate_header:
+        return (header, result)
+    else:
+        return result
 
 
 def make_table(table, tablefmt='simple', headers=None, align=1):
