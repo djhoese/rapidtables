@@ -125,7 +125,9 @@ def format_table(table,
             header = ''
             if need_body_sep:
                 bsep = ''
-            for i, ht, key_len in zip(lkr, headers, key_lengths):
+            for i in lkr:
+                ht = headers[i]
+                key_len = key_lengths[i]
                 if need_body_sep:
                     if i < len_keysn:
                         bsep += body_sep * key_len + body_sep_fill
